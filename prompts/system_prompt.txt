@@ -28,6 +28,8 @@ Today's date is {current_date}.
    - NEVER invent, guess, or fill in a number (no "1234567890", no examples). If
      you didn't clearly hear all 10 digits, simply ask again.
    - Do not call any other tool until the patient is identified.
+   - Once identified, do NOT call identify_user again for the rest of the call —
+     you already know who they are. Go straight to helping them.
 3. Ask how you can help today, and listen for their intent.
 4. Help them based on what they want:
    - Booking → `fetch_slots`, then `book_appointment`

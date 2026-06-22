@@ -3,6 +3,7 @@ load_dotenv()
 
 import json
 import logging
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 from livekit import rtc
@@ -46,69 +47,97 @@ class VoiceAgent(Agent):
             return REDIRECT_MESSAGE
         return await super().on_user_turn_completed(ctx, new_message)
 
+    @asynccontextmanager
+    async def _tool_call(self, tool: str):
+        await self._publish({"type": "tool_call", "tool": tool, "status": "running"})
+        try:
+            yield
+        except Exception:
+            logger.exception("Tool %s failed", tool)
+            await self._publish({
+                "type": "tool_call",
+                "tool": tool,
+                "status": "error",
+                "message": "Sorry, something went wrong on my end.",
+            })
+            raise
+
+    async def _emit(self, tool: str, result: dict, status: str | None = None):
+        await self._publish({
+            "type": "tool_call",
+            "tool": tool,
+            "status": status or result.get("status", "done"),
+            "message": result.get("message", ""),
+            **{k: v for k, v in result.items() if k not in ("status", "message")},
+        })
+
     @function_tool
     async def identify_user(self, phone_number: str) -> str:
-        await self._publish({"type": "tool_call", "tool": "identify_user", "status": "running"})
-        result = await handle_identify_user(phone_number)
-        if result.get("error"):
-            await self._publish({"type": "tool_call", "tool": "identify_user", "status": "error", **result})
+        async with self._tool_call("identify_user"):
+            result = await handle_identify_user(phone_number)
+            if not result.get("error"):
+                self._session_data["user_id"] = result.get("user_id")
+                self._session_data["phone_number"] = result.get("phone_number")
+            await self._emit("identify_user", result, "error" if result.get("error") else "done")
             return result["message"]
-        self._session_data["user_id"] = result.get("user_id")
-        self._session_data["phone_number"] = result.get("phone_number")
-        await self._publish({"type": "tool_call", "tool": "identify_user", "status": "done", **result})
-        return result["message"]
 
     @function_tool
     async def fetch_slots(self, date: str) -> str:
-        await self._publish({"type": "tool_call", "tool": "fetch_slots", "status": "running"})
-        result = await handle_fetch_slots(date)
-        await self._publish({"type": "tool_call", "tool": "fetch_slots", "status": "done", "slots": result["slots"]})
-        return result["message"]
+        async with self._tool_call("fetch_slots"):
+            result = await handle_fetch_slots(date)
+            await self._emit("fetch_slots", result, "done")
+            return result["message"]
 
     @function_tool
     async def book_appointment(self, date: str, time: str, reason: str = "General consultation") -> str:
-        await self._publish({"type": "tool_call", "tool": "book_appointment", "status": "running"})
-        user_id = self._session_data.get("user_id")
-        result = await handle_book_appointment(user_id, date, time, reason)
-        await self._publish({"type": "tool_call", "tool": "book_appointment", "status": result["status"], **result})
-        return result["message"]
+        async with self._tool_call("book_appointment"):
+            user_id = self._session_data.get("user_id")
+            result = await handle_book_appointment(user_id, date, time, reason)
+            await self._emit("book_appointment", result)
+            return result["message"]
 
     @function_tool
     async def retrieve_appointments(self) -> str:
-        await self._publish({"type": "tool_call", "tool": "retrieve_appointments", "status": "running"})
-        user_id = self._session_data.get("user_id")
-        result = await handle_retrieve_appointments(user_id)
-        await self._publish({"type": "tool_call", "tool": "retrieve_appointments", "status": "done"})
-        return result["message"]
+        async with self._tool_call("retrieve_appointments"):
+            user_id = self._session_data.get("user_id")
+            result = await handle_retrieve_appointments(user_id)
+            await self._emit("retrieve_appointments", result, "done")
+            return result["message"]
 
     @function_tool
     async def cancel_appointment(self, appointment_id: str) -> str:
-        await self._publish({"type": "tool_call", "tool": "cancel_appointment", "status": "running"})
-        result = await handle_cancel_appointment(appointment_id)
-        await self._publish({"type": "tool_call", "tool": "cancel_appointment", "status": result["status"]})
-        return result["message"]
+        async with self._tool_call("cancel_appointment"):
+            result = await handle_cancel_appointment(appointment_id)
+            await self._emit("cancel_appointment", result)
+            return result["message"]
 
     @function_tool
     async def modify_appointment(self, appointment_id: str, new_date: str = "", new_time: str = "") -> str:
-        await self._publish({"type": "tool_call", "tool": "modify_appointment", "status": "running"})
-        result = await handle_modify_appointment(appointment_id, new_date or None, new_time or None)
-        await self._publish({"type": "tool_call", "tool": "modify_appointment", "status": result["status"]})
-        return result["message"]
+        async with self._tool_call("modify_appointment"):
+            result = await handle_modify_appointment(appointment_id, new_date or None, new_time or None)
+            await self._emit("modify_appointment", result)
+            return result["message"]
 
     @function_tool
     async def end_conversation(self) -> str:
-        await self._publish({"type": "tool_call", "tool": "end_conversation", "status": "running"})
-        result = await handle_end_conversation(
-            room=self._room,
-            session_data=self._session_data,
-        )
-        await self._publish({
-            "type": "call_ended",
-            "summary": result.get("summary", ""),
-            "appointments": result.get("appointments", []),
-            "timestamp": datetime.utcnow().isoformat(),
-        })
-        return result["message"]
+        async with self._tool_call("end_conversation"):
+            result = await handle_end_conversation(
+                room=self._room,
+                session_data=self._session_data,
+            )
+            await self._publish({
+                "type": "tool_call",
+                "tool": "end_conversation",
+                "status": "done",
+                "message": "Call ended.",
+            })
+            await self._publish({
+                "type": "call_ended",
+                "summary": result.get("summary", ""),
+                "appointments": result.get("appointments", []),
+                "timestamp": datetime.utcnow().isoformat(),
+            })
+            return result["message"]
 
 
 async def entrypoint(ctx: JobContext):
