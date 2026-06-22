@@ -1,0 +1,28 @@
+# LiveKit (livekit-api is pulled automatically as a transitive dep)
+livekit-agents>=1.0.0,<2.0.0
+livekit-plugins-deepgram>=1.0.0,<2.0.0
+livekit-plugins-groq>=1.0.0,<2.0.0
+livekit-plugins-elevenlabs>=1.0.0,<2.0.0
+livekit-plugins-tavus>=1.0.0,<2.0.0
+
+# FastAPI
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+
+# Database
+sqlalchemy==2.0.36
+aiosqlite==0.20.0
+
+# Config
+pydantic-settings==2.7.0
+python-dotenv==1.0.1
+
+# HTTP client (Sarvam TTS)
+httpx==0.28.1
+
+# Groq SDK (for llama-guard safeguard)
+groq==0.13.0
+
+# Utils
+python-jose[cryptography]==3.3.0
