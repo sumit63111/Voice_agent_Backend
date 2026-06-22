@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 
 from livekit import rtc
-from livekit.agents import Agent, AgentSession, JobContext, WorkerOptions, cli, function_tool
+from livekit.agents import Agent, AgentSession, JobContext, RoomInputOptions, WorkerOptions, cli, function_tool
 from livekit.plugins import deepgram, elevenlabs, groq
 from livekit.plugins.tavus import AvatarSession
 
@@ -149,7 +149,11 @@ async def entrypoint(ctx: JobContext):
     else:
         logger.info("Tavus not configured — skipping avatar (set TAVUS_API_KEY + TAVUS_REPLICA_ID)")
 
-    await session.start(agent=agent, room=ctx.room)
+    await session.start(
+        agent=agent,
+        room=ctx.room,
+        room_input_options=RoomInputOptions(text_enabled=True),
+    )
     logger.info("AgentSession started")
 
     await session.say(
